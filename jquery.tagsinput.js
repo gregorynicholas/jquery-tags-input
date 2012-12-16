@@ -15,103 +15,118 @@
  * form fields. This makes consumption of the form data on
  * the server side much more consistent, and speed on the
  * client side much faster as well.
+ *
+ * Gregory Nicholas, 2012-12-15
  */
-
 (function($) {
-  var delimiter = [];
-  var tags_callbacks = [];
+  var delimiters = {};
+  var callbacks = {};
 
 
+  /**
+   * autosizes the ghost input.
+   *
+   * @param  {Object} o   an options object.
+   */
   $.fn.doAutosize = function(o) {
-    var $ghost_input = $(this); // ghost_input
+    var $ghost_input = $(this);
     if ($ghost_input.val() === '') {
       return;
     }
     var val = '';
     var minWidth = $ghost_input.data('minwidth');
     var maxWidth = $ghost_input.data('maxwidth');
-    var $autosizer = $ghost_input.data('autosizer');
-
+    var $autosizer = $ghost_input.data('$autosizer');
     if (!$autosizer || !$autosizer.length) {
-      //$ghost_input.resetAutosize();
+      // $ghost_input.resetAutosize();
     }
-
-    // Enter new content into $autosizer
+    // enter new content into $autosizer..
     var escaped = val.replace(/&/g, '&amp;')
                      .replace(/\s/g,' ')
                      .replace(/</g, '&lt;')
                      .replace(/>/g, '&gt;');
     $autosizer.html(escaped);
-
-    // Calculate new width + whether to change
-    var autosizerWidth = $autosizer.width();
-    var newWidth = (autosizerWidth+o.comfortZone) >= minWidth ? autosizerWidth + o.comfortZone : minWidth;
-    var currentWidth = $ghost_input.width();
-    var isValidWidthChange = (newWidth < currentWidth && newWidth >= minWidth) ||
-                             (newWidth > minWidth     && newWidth < maxWidth);
-
-    // Animate width
-    if (isValidWidthChange) {
+    // calculate new width & whether to change
+    var autosizerW = $autosizer.width();
+    var newW = minWidth;
+    if (autosizerW + o.comfortZone >= minWidth) {
+      newW = autosizerW + o.comfortZone;
+    }
+    var currentW = $ghost_input.width();
+    var validWidthChange = (newW < currentW && newW >= minWidth) ||
+                           (newW > minWidth && newW < maxWidth);
+    if (validWidthChange) {
       $ghost_input.width(newWidth);
     }
   };
 
 
+  /**
+   * resets auto size.
+   *
+   * @param  {Object} options   an options object.
+   */
   $.fn.resetAutosize = function(options) {
     var $ghost_input = $(this);
     if (!$ghost_input || !$ghost_input.length) {
       return;
     }
+    var padding = parseInt($ghost_input.css('padding').replace("px", ""), 10);
     var minWidth =  $ghost_input.data('minwidth') || options.minInputWidth || $ghost_input.width();
-    if ($ghost_input.data('input_holder') && $ghost_input.data('input_holder').length) {
-      var maxWidth = $ghost_input.data('input_holder').width() - options.inputPadding;
+    if ($ghost_input.data('input-holder') && $ghost_input.data('input-holder').length) {
+      var maxWidth = $ghost_input.data('input-holder').width() - padding;
     }
     var maxWidth = $ghost_input.data('maxwidth') || options.maxInputWidth;
-    var val = '';
-
-    var $autosizer = $ghost_input.data('autosizer');
+    var $autosizer = $ghost_input.data('$autosizer');
     if (!$autosizer || $autosizer.length) {
       $autosizer = $('<autosize/>');
       $autosizer.appendTo('body');
     }
-
     $autosizer.css({
-      position: 'absolute',
       top: -9999,
       left: -9999,
       width: 'auto',
+      position: 'absolute',
       fontSize: $ghost_input.css('fontSize'),
       fontFamily: $ghost_input.css('fontFamily'),
       fontWeight: $ghost_input.css('fontWeight'),
       letterSpacing: $ghost_input.css('letterSpacing'),
       whiteSpace: 'nowrap'
     });
-    $ghost_input.data('autosizer', $autosizer)
     $ghost_input.data('minwidth', minWidth)
     $ghost_input.data('maxwidth', maxWidth)
+    $ghost_input.data('$autosizer', $autosizer)
     $ghost_input.css('width', minWidth);
   };
 
 
-
+  /**
+   * adds a tag.
+   *
+   * @param {String} value
+   * @param {Object} options
+   */
   $.fn.addTag = function(value, options) {
-    options = $.extend({ focus:false, callback:true }, options);
+    options = $.extend({
+      retain_focus: false,
+      fire_callbacks: true
+    }, options);
 
     var $input = $(this);
     var id = $input.attr('id');
     var $ghost_input = $input.data('ghost_input');
     value = $.trim(value);
     if (value === '') {
-      // marks fake input as not_valid and returns false
-      // $ghost_input.addClass('not_valid');
+      // marks fake input as invalid and returns false
+      // $ghost_input.addClass('invalid');
       return false;
     }
 
-    var $input_holder = $input.data('input_holder');
+    var $input_holder = $input.data('input-holder');
     var $existing_tags = $input_holder.find('.tag [value="'+ value +'"]');
     if ($existing_tags.length) {
-      // marks fake input as not_valid and returns false
-      $ghost_input.addClass('not_valid');
+      // marks fake input as invalid and returns false
+      $ghost_input.addClass('invalid');
       return false;
     }
 
@@ -126,24 +141,24 @@
       $input.removeTag(value);
     });
 
-    // TODO: need a better selector here
+    // TODO: move away from parent selector here
     $new_tag.insertBefore($ghost_input.parent());
 
-    if (options.callback && tags_callbacks[id] && tags_callbacks[id]['onAddTag']) {
-      var f = tags_callbacks[id]['onAddTag'];
-      f.call(this, value);
+    if (options.fire_callbacks && callbacks[id] && callbacks[id]['onAddTag']) {
+      var f = callbacks[id]['onAddTag'];
+      f.call(this, $input, value);
     }
-    if (options.callback && tags_callbacks[id] && tags_callbacks[id]['onChange']) {
-      var total = tagslist.length;
-      var f = tags_callbacks[id]['onChange'];
-      f.call(this, $input, tagslist);
+    if (options.fire_callbacks && callbacks[id] && callbacks[id]['onChange']) {
+      var f = callbacks[id]['onChange'];
+      f.call(this, $input, value);
     }
 
     // set at placeholder status
     $ghost_input.val('');
+    $ghost_input.addClass('placeholder');
 
     // optionally retain focus on the fake input
-    if (options.focus) {
+    if (options.retain_focus) {
       $ghost_input.focus();
     } else {
       $ghost_input.blur();
@@ -154,251 +169,236 @@
   };
 
 
-
+  /**
+   * removes a tag.
+   *
+   * @param  {String} value
+   */
   $.fn.removeTag = function(value) {
     value = unescape(value);
     var $input = $(this);
     var id = $input.attr('id');
     // remove any tag that has [data-value] attribute matches
-    // the value arg
-    var $input_holder = $input.data('input_holder');
-
-    // remove visual tag elements
+    // the value arg..
+    var $input_holder = $input.data('input-holder');
+    // remove visual tag elements..
     var $tags = $input_holder.find('.tag[data-value="'+ value +'"]');
     $tags.remove();
-
-    if (tags_callbacks[id] && tags_callbacks[id]['onRemoveTag']) {
-      var f = tags_callbacks[id]['onRemoveTag'];
+    // fire callbacks..
+    if (callbacks[id] && callbacks[id]['onRemoveTag']) {
+      var f = callbacks[id]['onRemoveTag'];
       f.call(this, value);
     }
     return false;
   };
 
 
-  // clear all existing tags and import new ones from a string (list,
-  // fuck the original author)
-  $.fn.importTags = function(tags_list) {
-    var $input = $(this);
+  /**
+   * clear all existing tags and import new ones from an array of strings.
+   *
+   * @param  {Array} values   Array of strings.
+   */
+  $.fn.importTags = function(values) {
+    var $this = $(this);
     var id = $input.attr('id');
-
-    // remove current tag elements
-    // TODO: change this re-querying to be a cached property
-    var $input_holder = $input.data('input_holder');
-
-    // remove existing tags
+    // remove existing tag elements..
+    var $input_holder = $this.data('input-holder');
     $input_holder.find('.tag').remove();
-
-    var options = {
-      $input_holder: $input,
+    $.fn.tagsInput.importFromList({
       id: id,
-      tags_list: tags_list
-    }
-    $.fn.tagsInput.importFromList(options);
+      values: values,
+      $input_holder: $this
+    });
   };
 
 
+  /**
+   * [tagsInput description]
+   *
+   * @param  {Object} options   An options object.
+   *
+   * @return {jQuery}   A reference back to this.
+   */
   $.fn.tagsInput = function(options) {
-    var settings = $.extend({
-      interactive: true,
-      defaultText: 'add a tag',
-      minChars: 0,
+    var config = $.extend({
+      hide: true,
       width: '300px',
       height: '100px',
+      unique: true,
+      autosize: true,
+      minChars: 0,
+      delimiter: ',',
+      interactive: true,
       autocomplete: {
+        source: null,
+        enabled: false,
         selectFirst: false
       },
-      'hide': true,
-      'delimiter': ',',
-      'unique': true,
-      removeWithBackspace: true,
-      placeholderColor: '#666666',
-      autosize: true,
-      comfortZone: 20,
-      inputPadding: 6*2
+      placeholderText: 'add a tag',
+      removeOnBackspace: true,
+      comfortZone: 20
     }, options);
-
 
     $(this).each(function() {
       var $input = $(this);
-      if (settings.hide) {
+      if (config.hide) {
         $input.hide();
       }
       var id = $input.attr('id');
 
-      var $ghost_input_container = $('<div id="'+ id +'_addTag" class="tagsinput-a"></div>');
-      var $ghost_input = $('<input id="'+ id +'_tag" value="" placeholder="'+ settings.defaultText +'" data-default="'+ settings.defaultText +'" />');
+      var $ghost_input_container = $('<div id="'+ id +'_addTag" class="tags-input-a"></div>');
+      var $ghost_input = $('<input id="'+ id +'_tag" value="" data-placeholder-text="'+ config.placeholderText +'" />');
       $ghost_input_container.append($ghost_input)
 
-      var $holder = $('<div id="'+ id +'_tagsinput" class="tagsinput"></div>');
+      var $holder = $('<div id="'+ id +'_tags-input" class="tags-input-field"></div>');
       $holder.append($ghost_input_container);
-      $holder.append('<div class="tags_clear"></div>');
+      $holder.append('<div class="tags-clear"></div>');
       $holder.insertAfter(this);
 
       $input.data('pid', id);
-      $input.data('input_holder', $holder);
+      $input.data('input-holder', $holder);
       $input.data('ghost_input', $ghost_input);
 
-      var data = $.extend({
+      var _config = $.extend({
         pid: id,
-        $real_input: $input,
         $holder: $holder,
+        $real_input: $input,
         $ghost_input: $ghost_input
-      }, settings);
+      }, config);
 
-      delimiter[id] = data.delimiter;
+      delimiters[id] = _config.delimiter;
 
-      if (settings.onAddTag || settings.onRemoveTag || settings.onChange) {
-        tags_callbacks[id] = [];
-        tags_callbacks[id]['onAddTag'] = settings.onAddTag;
-        tags_callbacks[id]['onRemoveTag'] = settings.onRemoveTag;
-        tags_callbacks[id]['onChange'] = settings.onChange;
+      if (_config.onAddTag || _config.onRemoveTag || _config.onChange) {
+        callbacks[id] = [];
+        callbacks[id]['onAddTag'] = _config.onAddTag;
+        callbacks[id]['onRemoveTag'] = _config.onRemoveTag;
+        callbacks[id]['onChange'] = _config.onChange;
       }
 
-      data.$holder.css({
-        width: settings.width,
-        height: settings.height
+      _config.$holder.css({
+        width: _config.width,
+        height: _config.height
       });
-
-      // early return for validation
-      if (data.$real_input.val() !== '') {
-        //$.fn.tagsInput.importTags(data.$real_input, data.$real_input.val());
-      }
-
-      // set ghost input with placeholder default
-      data.$ghost_input.val(settings.defaultText);
-
-
-
 
       // set at placeholder status
-      //$(data.fake_input).css('color', settings.placeholderColor);
-
-
-
-      data.$ghost_input.resetAutosize(settings);
-      data.$holder.bind('click', function(event) {
-        data.$ghost_input.focus();
+      // set ghost input with placeholder default
+      _config.$ghost_input.val(_config.placeholderText);
+      _config.$ghost_input.addClass('placeholder');
+      _config.$ghost_input.resetAutosize(config);
+      _config.$holder.bind('click', function(event) {
+        _config.$ghost_input.focus();
       });
-      data.$ghost_input.bind('focus', function(event) {
-        if (data.$ghost_input.val() === data.$ghost_input.attr('data-default')) {
-          data.$ghost_input.val('');
+      _config.$ghost_input.bind('focus', function(event) {
+        if (_config.$ghost_input.val() === _config.placeholderText) {
+          _config.$ghost_input.val('');
         }
-        data.$holder.parent().addClass('focused'); // TODO: change from parent()
+        // TODO: change away from parent()
+        _config.$holder.parent().addClass('focused');
       });
-
 
       // Autocomplete
-      if (settings.autocomplete_url !== undefined) {
-        autocomplete_options = {
-          source: settings.autocomplete_url
-        };
-        for (attrname in settings.autocomplete) {
-          autocomplete_options[attrname] = settings.autocomplete[attrname];
-        }
-
+      if (config.autocomplete.enabled) {
         if (jQuery.Autocompleter !== undefined) {
-          data.$ghost_input.autocomplete(settings.autocomplete_url, settings.autocomplete);
-          data.$ghost_input.bind('result', data, function(event, data, formatted) {
-            if (data) {
+          _config.$ghost_input.autocomplete(
+            _config.autocomplete.url,
+            _config.autocomplete);
+          _config.$ghost_input.bind('result', _config,
+            function(event, _data, formatted) {
+            if (_data) {
               $input.addTag(
-                data[0] + '', true, {
-                  focus: true,
-                  unique: (settings.unique)
+                _data[0] + '', true, {
+                  retain_focus: true,
+                  unique: (config.unique)
               });
             }
           });
-        } else if (jQuery.ui.autocomplete !== undefined) {
-          data.$ghost_input.autocomplete(autocomplete_options);
-          data.$ghost_input.bind('autocompleteselect', data, function(event, ui) {
-            $input.addTag(
-              ui.item.value, true, {
-                focus: true,
-                unique: (settings.unique)
+        } else if (jquery.ui && jQuery.ui.autocomplete !== undefined) {
+          _config.$ghost_input.autocomplete(_config.autocomplete);
+          _config.$ghost_input.bind('autocompleteselect', _config,
+            function(event, ui) {
+            $input.addTag(ui.item.value, true, {
+              retain_focus: true,
+              unique: (config.unique)
             });
             return false;
           });
         }
-
-
       } else {
         // if a user tabs out of the field, create a new tag
         // this is only available if autocomplete is not used.
-        data.$ghost_input.bind('blur', data, function(event) {
-          var new_value = data.$ghost_input.val();
+        _config.$ghost_input.bind('blur', _config, function(event) {
+          var new_value = _config.$ghost_input.val();
 
           // set at placeholder status
-          if (new_value === '' || new_value === data.defaultText) {
-            // data.$ghost_input.css('color',settings.placeholderColor);
-            data.$ghost_input.val(data.defaultText);
+          if (new_value === '' || new_value === _config.placeholderText) {
+            _config.$ghost_input.addClass('placeholder');
+            _config.$ghost_input.val(_config.placeholderText);
             return false;
+          } else {
+            _config.$ghost_input.removeClass('placeholder');
           }
 
           // validate char length
-          if (data.minChars && new_value.length < data.minChars) {
+          if (_config.minChars && new_value.length < _config.minChars) {
             return false;
           }
-          if (data.maxChars && new_value.length > data.maxChars) {
+          if (_config.maxChars && new_value.length > _config.maxChars) {
             return false;
           }
 
-          data.$real_input.addTag(
-            new_value, true, {
-              focus:true,
-              unique:(settings.unique)
+          _config.$real_input.addTag(new_value, true, {
+            retain_focus: true,
+            unique: (_config.unique)
           });
 
-          data.$holder.parents('focused').removeClass('focused');
+          _config.$holder.parents('.focused').removeClass('focused');
         });
       }
 
       // if user types a comma, create a new tag
-      data.$ghost_input.bind('keypress', data, function(event) {
-        if (event.which !== data.delimiter.charCodeAt(0) && event.which !== 13) {
-          if (data.autosize) {
-            data.$ghost_input.doAutosize(settings);
+      _config.$ghost_input.bind('keypress', _config, function(e) {
+        if (e.which !== _config.delimiter.charCodeAt(0) &&
+            e.which !== 13) {
+          if (_config.autosize) {
+            _config.$ghost_input.doAutosize(_config);
           }
           return true;
         }
-        // handler <enter> key
-        event.preventDefault();
-        var new_value = data.$ghost_input.val();
-
-        // validate char length
-        if (data.minChars && new_value.length < data.minChars) {
+        // handle <return>
+        e.preventDefault();
+        var new_value = _config.$ghost_input.val();
+        if (_config.minChars && new_value.length < _config.minChars) {
           return false;
         }
-        if (data.maxChars && new_value.length > data.maxChars) {
+        if (_config.maxChars && new_value.length > _config.maxChars) {
           return false;
         }
-
-        data.$real_input.addTag(
-          new_value, true, {
-            focus: true,
-            unique: (settings.unique)
-          })
-
-        data.$ghost_input.resetAutosize(settings);
+        _config.$real_input.addTag(new_value, true, {
+          retain_focus: true,
+          unique: (config.unique)
+        });
+        _config.$ghost_input.resetAutosize(config);
         return false;
       });
 
       // Delete last tag on backspace
-      data.removeWithBackspace && data.$ghost_input.bind('keydown', function(event) {
-        if (event.keyCode === 8 && data.$ghost_input.val() === '') {
-          event.preventDefault();
-          var $last_tag = data.$ghost_input.closest('.tagsinput').find('.tag:last').text();
-          var last_tag_value = $last_tag.replace(/[\s]+x$/, '');
-          data.$real_input.removeTag(escape(last_tag_value));
-          data.$ghost_input.trigger('focus');
-        }
-      });
-      data.$ghost_input.blur();
+      if (_config.removeOnBackspace) {
+        _config.$ghost_input.bind('keydown', function(e) {
+          e.preventDefault();
+          if (e.keyCode === 8 && _config.$ghost_input.val() === '') {
+            $input.removeLastTag(_config);
+          }
+        });
+      }
+      _config.$ghost_input.blur();
 
-      // Removes the not_valid class when user changes the value
+      // Removes the invalid class when user changes the value
       // of the fake input
-      if (data.unique) {
-        data.$ghost_input.keydown(function(event){
-          if (event.keyCode === 8 || String.fromCharCode(event.which).match(/\w+|[áéíóúÁÉÍÓÚñÑ,/]+/)) {
-            data.$ghost_input.removeClass('not_valid');
+      if (_config.unique) {
+        _config.$ghost_input.keydown(function(e){
+          if (e.keyCode === 8 ||
+              String.fromCharCode(e.which).match(/\w+|[áéíóúÁÉÍÓÚñÑ,/]+/)) {
+            _config.$ghost_input.removeClass('invalid');
           }
         });
       }
@@ -409,21 +409,46 @@
   };
 
 
+  /**
+   * removes the last position tag value.
+   *
+   * @param  {Object} options   An options object.
+   */
+  $.fn.tagsInput.removeLastTag = function(options) {
+    options.$real_input.removeTag(escape(
+      options.$holder
+        .find('.tag:last')
+        .text()
+        .replace(/[\s]+x$/, ''))
+    );
+    // refocus the ghost input
+    options.$ghost_input.trigger('focus');
+  };
+
+
+  $.fn.tagsInput.initAutocomplete = function(options) {
+
+  };
+
+
+  /**
+   * import tags.
+   *
+   * @param  {Object} options   An options object.
+   */
   $.fn.tagsInput.importFromList = function(options) {
-    // options = {$input_holder, id, tags_list}
-    for (i=0, total=options.tags_list.length; i<total; i++) {
-      options.$input_holder.addTag(options.tags_list[i], {
-        focus: false,
-        callback: false
+    // options = {$input_holder, id, values}
+    for (i = 0, total = options.values.length; i < total; i++) {
+      options.$input_holder.addTag(options.values[i], {
+        retain_focus: false,
+        fire_callbacks: false
       });
     }
     var id = $(this).attr('id');
-    if (tags_callbacks[id] && tags_callbacks[id]['onChange']) {
-      var f = tags_callbacks[id]['onChange'];
-      f.call(
-        this, options.$input_holder, tags_list);
+    if (callbacks[id] && callbacks[id]['onChange']) {
+      var f = callbacks[id]['onChange'];
+      f.call(this, options.$input_holder, values);
     }
   };
-
 
 })(jQuery);
